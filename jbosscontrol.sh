@@ -86,6 +86,23 @@ print_err() {
 }
 
 ###############################################################################
+# Reads system property from $JAVA_OPTS                                       #
+###############################################################################
+read_property() {
+  PropValue=$(echo "$JAVA_OPTS" | sed -e 's/.*-D'"$1"'=\(\"\(\(\([^\"]\|\(\\\"\)\)*\)\)\"\|\(\(\(\\ \)\|[^ ]\)*\)\).*/\1/;s/^\"//;s/\"$//')
+  if [ "x$PropValue" = "x$JAVA_OPTS" ]; then
+    PropValue=""
+  fi
+}
+
+###############################################################################
+# Removes system property from $JAVA_OPTS                                     #
+###############################################################################
+remove_property() {
+  JAVA_OPTS=$(echo "$JAVA_OPTS" | sed -e 's/-D'"$1"'=\(\"\(\(\([^\"]\|\(\\\"\)\)*\)\)\"\|\(\(\(\\ \)\|[^ ]\)*\)\)//')
+}
+
+###############################################################################
 # reads java pid to $svrv_pid variable
 ###############################################################################
 read_java_pid() {
@@ -524,16 +541,12 @@ start_server_script() {
                force_kill
              ;;
            esac
-         ;;
-#JBoss AS 4
-         *\[Server\]\ JBoss\ \(MX\ MicroKernel\)\ *Started\ in*)
+	 ;;
+#JBoss AS 7.1.1
+         *JBAS015874:\ JBoss\ AS\ 7.1.1.Final\ \"Brontes\"\ started\ in*)
            write_state RUNNING:Y:N
          ;;
-#JBoss AS 5
-         *\[ServerImpl\]\ JBoss\ \(Microcontainer\)\ *Started\ in*)
-           write_state RUNNING:Y:N
-         ;;
-         *\[Server\]\ Shutdown\ complete)
+         *JBAS015950:\ JBoss\ AS\ 7.1.1.Final\ \"Brontes\"\ stopped\ in*)
            write_state SHUTTING_DOWN:Y:N
          ;;
        esac
@@ -552,65 +565,12 @@ setup_jboss_cmdline() {
     MEM_ARGS="$USER_MEM_ARGS"
   fi
 
-  echo $JAVA_OPTS | grep Dorg.jboss.resolver.warning= > $NullDevice 2>&1
-  if [ "x$?" != "x0" ]; then
-    JAVA_OPTS="$JAVA_OPTS -Dorg.jboss.resolver.warning=true"
-  fi
-
-  echo $JAVA_OPTS | grep Dsun.rmi.dgc.client.gcInterval= > $NullDevice 2>&1
-  if [ "x$?" != "x0" ]; then
-    JAVA_OPTS="$JAVA_OPTS -Dsun.rmi.dgc.client.gcInterval=3600000"
-  fi
-
-  echo $JAVA_OPTS | grep Dsun.rmi.dgc.server.gcInterval= > $NullDevice 2>&1
-  if [ "x$?" != "x0" ]; then
-    JAVA_OPTS="$JAVA_OPTS -Dsun.rmi.dgc.server.gcInterval=3600000"
-  fi
-
   # Setup the JVM
   if [ "x$JAVA_HOME" != "x" -a -x "$JAVA_HOME/bin/java" ]; then
     JAVA="$JAVA_HOME/bin/java"
   else
     print_err "Please specify a valid JAVA_HOME" >&2
     return 1
-  fi
-
-  # Setup the classpath
-  runjar="$JBOSS_HOME/bin/run.jar"
-  if [ ! -f "$runjar" ]; then
-    print_err "Missing required file: $runjar" >&2
-    return 1
-  fi
-
-  JBOSS_BOOT_CLASSPATH="$runjar"
-
-  # Tomcat uses the JDT Compiler
-  # Only include tools.jar if someone wants to use the JDK instead.
-  # compatible distribution which JAVA_HOME points to
-  if [ "x$JAVAC_JAR" = "x" ]; then
-    JAVAC_JAR_FILE="$JAVA_HOME/lib/tools.jar"
-  else
-    JAVAC_JAR_FILE="$JAVAC_JAR"
-  fi
-
-  if [ ! -f "$JAVAC_JAR_FILE" -a "x$JAVAC_JAR" != "x"  ]; then
-    warn "Missing file: JAVAC_JAR=$JAVAC_JAR"
-    warn "Unexpected results may occur."
-    JAVAC_JAR_FILE=
-  fi
-
-  if [ "x$JBOSS_CLASSPATH" = "x" ]; then
-    JBOSS_CLASSPATH="$JBOSS_BOOT_CLASSPATH"
-  else
-    JBOSS_CLASSPATH="$JBOSS_CLASSPATH:$JBOSS_BOOT_CLASSPATH"
-  fi
-
-  if [ "x$JAVAC_JAR_FILE" != "x" ]; then
-    JBOSS_CLASSPATH="$JBOSS_CLASSPATH:$JAVAC_JAR_FILE"
-  fi
-
-  if [ "x$POST_CLASSPATH" != "x" ]; then
-    JBOSS_CLASSPATH="$JBOSS_CLASSPATH:$POST_CLASSPATH"
   fi
 
   # If -server not set in JAVA_OPTS, set it, if supported
@@ -625,69 +585,131 @@ setup_jboss_cmdline() {
     fi
   fi
 
-  # Setup JBoss Native library path
-  # Use the common JBoss Native convention
-  # for packing platform binaries
-  #
-  JBOSS_NATIVE_CPU=`uname -m`
-  case "$JBOSS_NATIVE_CPU" in
-    sun4u*)
-      JBOSS_NATIVE_CPU="sparcv9"
-    ;;
-    i86pc*)
-      JBOSS_NATIVE_CPU="x86"
-    ;;
-    i[3-6]86*)
-      JBOSS_NATIVE_CPU="x86"
-    ;;
-    x86_64*)
-      JBOSS_NATIVE_CPU="x64"
-    ;;
-    ia64*)
-      JBOSS_NATIVE_CPU="i64"
-    ;;
-    9000/800*)
-      JBOSS_NATIVE_CPU="parisc2"
-    ;;
-    Power*)
-      JBOSS_NATIVE_CPU="ppc"
-    ;;
-  esac
-
-  JBOSS_NATIVE_SYS=`uname -s`
-  case "$JBOSS_NATIVE_SYS" in
-    Linux*)
-      JBOSS_NATIVE_SYS="linux2"
-    ;;
-    SunOS*)
-      JBOSS_NATIVE_SYS="solaris"
-    ;;
-    HP-UX*)
-      JBOSS_NATIVE_SYS="hpux"
-    ;;
-  esac
-
-  JBOSS_NATIVE_DIR="$JBOSS_HOME/bin/META-INF/lib/$JBOSS_NATIVE_SYS/$JBOSS_NATIVE_CPU"
-  if [ -d "$JBOSS_NATIVE_DIR" ]; then
-    if [ "x$LD_LIBRARY_PATH" = "x" ]; then
-      LD_LIBRARY_PATH="$JBOSS_NATIVE_DIR"
-    else
-      LD_LIBRARY_PATH="$JBOSS_NATIVE_DIR:$LD_LIBRARY_PATH"
+  echo $JAVA_OPTS | grep "\-server" > $NullDevice 2>&1
+  if [ "x$?" = "x0" ]; then
+    echo $JAVA_OPTS | grep "\-XX:[\-\+]UseCompressedOops" > $NullDevice 2>&1
+    if [ "x$?" != "x0" ]; then
+      $JAVA -server -XX:+UseCompressedOops -version > $NullDevice 2>&1
+      if [ "x$?" = "x0" ]; then
+	JAVA_OPTS="$JAVA_OPTS -XX:+UseCompressedOops"
+      fi
     fi
-    export LD_LIBRARY_PATH
 
-    if [ "x$JAVA_OPTS" = "x" ]; then
-      JAVA_OPTS="-Djava.library.path=$JBOSS_NATIVE_DIR"
-    else
-      JAVA_OPTS="$JAVA_OPTS -Djava.library.path=$JBOSS_NATIVE_DIR"
+    echo $JAVA_OPTS | grep "\-XX:[\-\+]TieredCompilation" > $NullDevice 2>&1
+    if [ "x$?" != "x0" ]; then
+      $JAVA -server -XX:+TieredCompilation -version > $NullDevice 2>&1
+      if [ "x$?" = "x0" ]; then
+	JAVA_OPTS="$JAVA_OPTS -XX:+TieredCompilation"
+      fi
     fi
   fi
 
+  if [ "x$JBOSS_MODULEPATH" = "x" ]; then
+    JBOSS_MODULEPATH="$JBOSS_HOME/modules"
+  fi
+  
+  if [ ! -d "$JBOSS_MODULEPATH" ]; then
+    print_err "Directory '$JBOSS_MODULEPATH' not found.  Make sure jboss module directory exists and is accessible" >&2
+    return 1
+  fi
+  
+  read_property jboss.server.config.dir
+  if [ "x$PropValue" = "x" ]; then
+    SERVER_CONFIG_DIR="$ServerDir/configuration"
+  else
+    SERVER_CONFIG_DIR="$PropValue"
+    if [ "x$SERVER_CONFIG_DIR" = "x$ServerDir/configuration" ]; then
+      remove_property jboss.server.config.dir
+    fi
+  fi
+
+  if [ ! -d "$SERVER_CONFIG_DIR" ]; then
+    print_err "Directory '$SERVER_CONFIG_DIR' not found.  Make sure jboss config directory exists and is accessible" >&2
+    return 1
+  fi
+
+  read_property jboss.server.data.dir
+  if [ "x$PropValue" = "x" ]; then
+    SERVER_DATA_DIR="$ServerDir/data"
+  else
+    SERVER_DATA_DIR="$PropValue"
+    if [ "x$SERVER_DATA_DIR" = "x$ServerDir/data" ]; then
+      remove_property jboss.server.config.dir
+    fi
+  fi
+      remove_property jboss.server.config.dir
+
+  if [ ! -d "$SERVER_DATA_DIR" ]; then
+    echo "Directory '$SERVER_DATA_DIR' not found.  Make sure jboss data directory exists and is accessible" >&2
+    return 1
+  fi
+
+  read_property jboss.server.log.dir
+  if [ "x$PropValue" = "x" ]; then
+    SERVER_LOG_DIR="$ServerDir/log"
+  else
+    SERVER_LOG_DIR="$PropValue"
+    if [ "x$SERVER_LOG_DIR" = "x$ServerDir/log" ]; then
+      remove_property jboss.server.log.dir
+    fi
+  fi
+
+  if [ ! -d "$SERVER_LOG_DIR" ]; then
+    print_err "Directory '$SERVER_LOG_DIR' not found.  Make sure jboss log directory exists and is accessible" >&2
+    return 1
+  fi
+
+  read_property jboss.server.temp.dir
+  if [ "x$PropValue" = "x" ]; then
+    SERVER_TEMP_DIR="$ServerDir/tmp"
+  else
+    SERVER_TEMP_DIR="$PropValue"
+    if [ "x$SERVER_TEMP_DIR" = "x$ServerDir/tmp" ]; then
+      remove_property jboss.server.temp.dir
+    fi
+  fi
+
+  if [ ! -d "$SERVER_TEMP_DIR" ]; then
+    print_err "Directory '$SERVER_TEMP_DIR' not found.  Make sure jboss temp directory exists and is accessible" >&2
+    return 1
+  fi
+
+  read_property jboss.server.deploy.dir
+  if [ "x$PropValue" = "x" ]; then
+    SERVER_DEPLOY_DIR="$SERVER_DATA_DIR/content"
+  else
+    SERVER_DEPLOY_DIR="$PropValue"
+    if [ "x$SERVER_DEPLOY_DIR" = "x$SERVER_DATA_DIR/content" ]; then
+      remove_property jboss.server.deploy.dir
+    fi
+  fi
+
+  if [ ! -d "$SERVER_DEPLOY_DIR" ]; then
+    print_err "Directory '$SERVER_DEPLOY_DIR' not found.  Make sure jboss deploy directory exists and is accessible" >&2
+    return 1
+  fi
+
+  read_property org.jboss.boot.log.file
+  if [ "x$PropValue" = "x" ]; then
+    JAVA_OPTS="$JAVA_OPTS -Dorg.jboss.boot.log.file=$SERVER_LOG_DIR/boot.log"
+  fi
+
+  read_property logging.configuration
+  if [ "x$PropValue" = "x" ]; then
+    JAVA_OPTS="$JAVA_OPTS -Dlogging.configuration=file:$SERVER_CONFIG_DIR/logging.properties"
+  fi
+
   # Setup JBoss specific properties
-  JAVA_OPTS="$JAVA_OPTS -Dprogram.name=$PROGNAME -Djava.endorsed.dirs=$JBOSS_HOME/lib/endorsed -classpath $JBOSS_CLASSPATH"
+  JAVA_OPTS="-D[Standalone] $JAVA_OPTS"
+  JAVA_OPTS="$JAVA_OPTS $MEM_ARGS"
+  JAVA_OPTS="$JAVA_OPTS -Djboss.home.dir=$JBOSS_HOME"
+  JAVA_OPTS="$JAVA_OPTS -Djboss.server.base.dir=$ServerDir"
+  JAVA_OPTS="$JAVA_OPTS -jar $JBOSS_HOME/jboss-modules.jar"
+  JAVA_OPTS="$JAVA_OPTS -mp $JBOSS_MODULEPATH"
+  JAVA_OPTS="$JAVA_OPTS -jaxpmodule javax.xml.jaxp-provider"
 
   CommandName=$JAVA
-  CommandArgs="$JAVA_OPTS $MEM_ARGS org.jboss.Main $JBOSS_OPTS"
+  CommandArgs="$JAVA_OPTS org.jboss.as.standalone $JBOSS_OPTS"
 
   print_info $CommandName
   print_info $CommandArgs
@@ -806,22 +828,11 @@ print_usage() {
   cat <<__EOF__
 Usage: $0 [OPTIONS] CMD
 Where options include:
-    -h                          Show this help message
-    -D<name>[=<value>]          Set a system property
-    -d <dir>                    Set the boot patch directory; Must be absolute or url
-    -p <dir>                    Set the patch directory; Must be absolute or url
-    -n <url>                    Boot from net with the given url as base
-    -c <name>                   Set the server configuration name, required
-    -r <dir>                    Set the server root directory, required
-    -B <filename>               Add an extra library to the front bootclasspath
-    -L <filename>               Add an extra library to the loaders classpath
-    -C <url>                    Add an extra url to the loaders classpath
-    -P <url>                    Load system properties from the given url
-    -b <host or ip>             Bind address for all JBoss services
-    -g <name>                   HA Partition name (default=DefaultDomain)
-    -m <ip>                     UDP multicast port; only used by JGroups
-    -u <ip>                     UDP multicast address
-    -l <log4j|jdk>              Specify the logger plugin type
+    -h                                  Show this help message
+    -D<name>[=<value>]                  Set a system property
+    -b <host or ip>|<name>=<value>      Bind address for all JBoss services
+    -m <ip>                             UDP multicast address
+    -d <config name>                    Config name
 __EOF__
 }
 
@@ -838,7 +849,7 @@ NullDevice=/dev/null
 # Parse command line options                                                  #
 ###############################################################################
 eval "set -- $@"
-while getopts hD:d:p:n:c:r:B:L:C:P:b:g:m:u:l: flag "$@"; do
+while getopts hD:r:c:d:b:m: flag "$@"; do
   case $flag in
     h)
      print_usage
@@ -849,12 +860,11 @@ while getopts hD:d:p:n:c:r:B:L:C:P:b:g:m:u:l: flag "$@"; do
     ;;
     c)
      ServerName=$OPTARG
-     JBOSS_OPTS="$JBOSS_OPTS -c $OPTARG"
     ;;
     D)
      JAVA_OPTS="$JAVA_OPTS -D$OPTARG"
     ;;
-    d|p|n|c|r|B|L|C|P|b|g|m|u|l)
+    b|d|m)
      JBOSS_OPTS="$JBOSS_OPTS -$flag $OPTARG"
     ;;
     *) echo "Unrecognized option: $flag" >&2
@@ -874,18 +884,31 @@ if [ $# -lt 1 ]; then
 fi
 
 if [ "x$JBOSS_HOME" = "x" ]; then
-  echo "Please specify jboss root directory"
-  print_usage
-  exit 1
+  read_property jboss.home.dir
+  if [ "x$PropValue" = "x" ]; then
+    echo "Please specify either jboss home (-r) or -Djboss.home.dir"
+    print_usage
+    exit 1
+  fi
+  JBOSS_HOME="$PropValue"
 fi
+
+remove_property jboss.home.dir
 
 if [ "x$ServerName" = "x" ]; then
-  echo "Please specify jboss server name"
-  print_usage
-  exit 1
+  read_property jboss.server.base.dir
+  if [ "x$PropValue" = "x" ]; then
+    echo "Please specify either jboss server name (-c) or -Djboss.server.base.dir"
+    print_usage
+    exit 1
+  fi
+  ServerDir="$PropValue"
+  ServerName=`basename -- "$ServerDir"`
+else
+  ServerDir=$JBOSS_HOME/server/$ServerName
 fi
 
-ServerDir="$JBOSS_HOME/server/$ServerName"
+remove_property jboss.server.base.dir
 
 NMCMD=`echo $1 | tr '[a-z]' '[A-Z]'`
 
