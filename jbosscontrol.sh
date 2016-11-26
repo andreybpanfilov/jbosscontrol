@@ -171,7 +171,7 @@ list_thread_dump() {
 # Returns true if the process with the specified pid is still alive.          #
 ###############################################################################
 is_alive() {
-  if [ -d /proc ]; then
+  if [ -d /proc/self ]; then
     [ -r "/proc/$1" -a "x" != "x$1" ]
   else
     ps -p $1 2>$NullDevice | grep -q $1
@@ -209,7 +209,7 @@ server_not_yet_started() {
 ###############################################################################
 monitor_is_running() {
   if read_file "$LockFile" && is_alive $REPLY; then
-    /sbin/fuser -- "$LockFile" > $NullDevice 2>&1
+    /sbin/fuser "$LockFile" > $NullDevice 2>&1
     if [ "x$?" = "x0" ]; then
       return 0
     fi
@@ -224,7 +224,7 @@ monitor_is_running() {
 ###############################################################################
 java_is_running() {
   if read_file "$PidFile" && is_alive $REPLY; then
-    /sbin/fuser -- "$PidFile" > $NullDevice 2>&1
+    /sbin/fuser "$PidFile" > $NullDevice 2>&1
     if [ "x$?" = "x0" ]; then
       return 0
     fi
@@ -319,7 +319,7 @@ save_log() {
   esac
   rotatedLog="$OutFile"$zeroPads$logCount
   mv -f -- "$OutFile" "$rotatedLog"
-  /sbin/fuser -k -HUP -- "$rotatedLog" >$NullDevice 2>&1
+  /sbin/fuser -k -HUP "$rotatedLog" >$NullDevice 2>&1
 }
 
 ###############################################################################
@@ -549,6 +549,13 @@ start_server_script() {
          *JBAS015950:\ JBoss\ AS\ 7.1.1.Final\ \"Brontes\"\ stopped\ in*)
            write_state SHUTTING_DOWN:Y:N
          ;;
+#WildFly Full 9.0.1.Final
+         *WFLYSRV0025:\ WildFly\ Full\ 9.0.1.Final\ \(WildFly\ Core\ 1.0.1.Final\)\ started\ in*)
+           write_state RUNNING:Y:N
+         ;;
+         *WFLYSRV0050:\ WildFly\ Full\ 9.0.1.Final\ \(WildFly\ Core\ 1.0.1.Final\)\ stopped\ in*)
+           write_state SHUTTING_DOWN:Y:N
+         ;;
        esac
        echo $line;
     done
@@ -640,8 +647,8 @@ setup_jboss_cmdline() {
       remove_property jboss.server.config.dir
 
   if [ ! -d "$SERVER_DATA_DIR" ]; then
-    echo "Directory '$SERVER_DATA_DIR' not found.  Make sure jboss data directory exists and is accessible" >&2
-    return 1
+    echo "Directory '$SERVER_DATA_DIR' not found, creating" >&2
+    mkdir -p $SERVER_DATA_DIR
   fi
 
   read_property jboss.server.log.dir
@@ -655,8 +662,8 @@ setup_jboss_cmdline() {
   fi
 
   if [ ! -d "$SERVER_LOG_DIR" ]; then
-    print_err "Directory '$SERVER_LOG_DIR' not found.  Make sure jboss log directory exists and is accessible" >&2
-    return 1
+    print_err "Directory '$SERVER_LOG_DIR' not found, creating" >&2
+    mkdir -p "$SERVER_LOG_DIR"
   fi
 
   read_property jboss.server.temp.dir
@@ -670,8 +677,8 @@ setup_jboss_cmdline() {
   fi
 
   if [ ! -d "$SERVER_TEMP_DIR" ]; then
-    print_err "Directory '$SERVER_TEMP_DIR' not found.  Make sure jboss temp directory exists and is accessible" >&2
-    return 1
+    print_err "Directory '$SERVER_TEMP_DIR' not found, creating" >&2
+    mkdir -p "$SERVER_TEMP_DIR"
   fi
 
   read_property jboss.server.deploy.dir
@@ -685,8 +692,8 @@ setup_jboss_cmdline() {
   fi
 
   if [ ! -d "$SERVER_DEPLOY_DIR" ]; then
-    print_err "Directory '$SERVER_DEPLOY_DIR' not found.  Make sure jboss deploy directory exists and is accessible" >&2
-    return 1
+    print_err "Directory '$SERVER_DEPLOY_DIR' not found, reating" >&2
+    mkdir -p $SERVER_DEPLOY_DIR
   fi
 
   read_property org.jboss.boot.log.file
@@ -844,6 +851,21 @@ RestartMax=2
 RestartDelaySeconds=0
 LastBaseStartTime=0
 NullDevice=/dev/null
+
+
+###############################################################################
+# Prerequirements
+###############################################################################
+
+if [ ! -x /sbin/fuser ]; then
+  echo "/sbin/fuser executable does not exist"
+  exit 1
+fi
+
+if [ "x$BASH" = "x" ]; then
+  echo "current shell is not a bash"
+  exit 1
+fi
 
 ###############################################################################
 # Parse command line options                                                  #
