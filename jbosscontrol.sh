@@ -594,7 +594,7 @@ setup_jboss_cmdline() {
 
   echo $JAVA_OPTS | grep "\-server" > $NullDevice 2>&1
   if [ "x$?" = "x0" ]; then
-    echo $JAVA_OPTS | grep "\-XX:[\-\+]UseCompressedOops" > $NullDevice 2>&1
+    echo $JAVA_OPTS | grep "\-XX:[-\+]UseCompressedOops" > $NullDevice 2>&1
     if [ "x$?" != "x0" ]; then
       $JAVA -server -XX:+UseCompressedOops -version > $NullDevice 2>&1
       if [ "x$?" = "x0" ]; then
@@ -602,7 +602,7 @@ setup_jboss_cmdline() {
       fi
     fi
 
-    echo $JAVA_OPTS | grep "\-XX:[\-\+]TieredCompilation" > $NullDevice 2>&1
+    echo $JAVA_OPTS | grep "\-XX:[-\+]TieredCompilation" > $NullDevice 2>&1
     if [ "x$?" != "x0" ]; then
       $JAVA -server -XX:+TieredCompilation -version > $NullDevice 2>&1
       if [ "x$?" = "x0" ]; then
