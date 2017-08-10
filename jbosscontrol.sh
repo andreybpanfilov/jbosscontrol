@@ -134,7 +134,7 @@ force_kill() {
     kill -9 $srvr_pid
     return $?
   else
-    echo "Jboss is not currently running" >&2
+    print_err "Jboss is not currently running" >&2
     return 1
   fi
 }
@@ -148,7 +148,7 @@ make_thread_dump() {
     kill -3 $srvr_pid
     return $?
   else
-    echo "Jboss is not currently running" >&2
+    print_err "Jboss is not currently running" >&2
     return 1
   fi
 }
@@ -162,7 +162,7 @@ list_thread_dump() {
     sleep 1
     less +"?Full thread dump Java HotSpot" -- "$OutFile"
   else
-    echo "Jboss is not currently running" >&2
+    print_err "Jboss is not currently running" >&2
     return 1
   fi
 }
@@ -378,12 +378,12 @@ check_deadlock() {
 ###############################################################################
 check_dirs() {
   if [ ! -d "$JBOSS_HOME" ]; then
-    echo "Directory '$JBOSS_HOME' not found.  Make sure jboss directory exists and is accessible" >&2
+    print_err "Directory '$JBOSS_HOME' not found.  Make sure jboss directory exists and is accessible" >&2
     exit 1
   fi
 
   if [ ! -d "$ServerDir" ]; then
-    echo "Directory '$ServerDir' not found.  Make sure jboss server directory exists and is accessible" >&2
+    print_err "Directory '$ServerDir' not found.  Make sure jboss server directory exists and is accessible" >&2
     exit 1
   fi
 
@@ -399,13 +399,13 @@ check_dirs() {
 do_start() {
   # Make sure server is not already started
   if monitor_is_running; then
-    echo "Jboss has already been started" >&2
+    print_err "Jboss has already been started" >&2
     return 1
   fi
   # If monitor is not running, but if we can determine that the Jboss
   # process is running, then say that server is already running.
   if java_is_running; then
-    echo "Jboss has already been started" >&2
+    print_err "Jboss has already been started" >&2
     return 1
   fi
   # Save previous server output log
@@ -419,11 +419,21 @@ do_start() {
   # Now start the server and monitor loop
   start_and_monitor_server &
   # Wait for server to start up
+
+  count=0
   while is_alive $! && server_not_yet_started; do
     sleep 1
+    count=`expr ${count} + 1`
+    if [ "x$StartTimeout" != "x0" ]; then
+      if [ $count -gt $StartTimeout ]; then
+        print_err "Jboss failed to start within $StartTimeout seconds, exiting" >&2
+        do_kill
+        return 1
+      fi
+    fi
   done
   if server_not_yet_started; then
-    echo "Jboss failed to start (see server output log for details)" >&2
+    print_err "Jboss failed to start (see server output log for details)" >&2
     return 1
   fi
   return 0
@@ -635,8 +645,8 @@ setup_jboss_cmdline() {
       remove_property jboss.server.config.dir
 
   if [ ! -d "$SERVER_DATA_DIR" ]; then
-    echo "Directory '$SERVER_DATA_DIR' not found.  Make sure jboss data directory exists and is accessible" >&2
-    return 1
+    print_err "Directory '$SERVER_DATA_DIR' not found, creating" >&2
+    mkdir -p $SERVER_DATA_DIR
   fi
 
   read_property jboss.server.log.dir
@@ -718,7 +728,7 @@ setup_jboss_cmdline() {
 do_kill() {
   read_java_pid
   if [ "x$?" != "x0" -o "x$srvr_pid" = "x" ]; then
-    echo "Jboss is not currently running" >&2
+    print_err "Jboss is not currently running" >&2
     return 1
   fi
 
@@ -734,7 +744,7 @@ do_kill() {
   done
   if monitor_is_running; then
     write_state FORCE_SHUTTING_DOWN:Y:N
-    echo "Server process did not terminate in $StopTimeout seconds after being signaled to terminate, killing" 2>&1
+    print_err "Server process did not terminate in $StopTimeout seconds after being signaled to terminate, killing" >&2
     kill -9 $srvr_pid
   fi
 }
@@ -811,7 +821,7 @@ do_command() {
     GETLOG) cat "$OutFile" 2>$NullDevice ;;
     TAILLOG) while true; do tail -100f "$OutFile" 2>$NullDevice; done ;;
     THREADDUMP) list_thread_dump ;;
-    *)      echo "Unrecognized command: $1" >&2 ;;
+    *)      print_err "Unrecognized command: $1" >&2 ;;
     esac
 }
 
@@ -841,6 +851,20 @@ LastBaseStartTime=0
 NullDevice=/dev/null
 
 ###############################################################################
+# Prerequirements
+###############################################################################
+
+if [ ! -x /sbin/fuser ]; then
+  print_err "/sbin/fuser executable does not exist" >&2
+  exit 1
+fi
+
+if [ "x$BASH" = "x" ]; then
+  print_err "current shell is not a bash" >&2
+  exit 1
+fi
+
+###############################################################################
 # Parse command line options                                                  #
 ###############################################################################
 eval "set -- $@"
@@ -862,7 +886,7 @@ while getopts hD:r:c:d:b:m: flag "$@"; do
     b|d|m)
      JBOSS_OPTS="$JBOSS_OPTS -$flag $OPTARG"
     ;;
-    *) echo "Unrecognized option: $flag" >&2
+    *) print_err "Unrecognized option: $flag" >&2
      exit 1
     ;;
   esac
@@ -873,7 +897,7 @@ if [ ${OPTIND} -gt 1 ]; then
 fi
 
 if [ $# -lt 1 ]; then
-  echo "Please specify a command to execute"
+  print_err "Please specify a command to execute" >&2
   print_usage
   exit 1
 fi
@@ -881,7 +905,7 @@ fi
 if [ "x$JBOSS_HOME" = "x" ]; then
   read_property jboss.home.dir
   if [ "x$PropValue" = "x" ]; then
-    echo "Please specify either jboss home (-r) or -Djboss.home.dir"
+    print_err "Please specify either jboss home (-r) or -Djboss.home.dir" >&2
     print_usage
     exit 1
   fi
@@ -893,7 +917,7 @@ remove_property jboss.home.dir
 if [ "x$ServerName" = "x" ]; then
   read_property jboss.server.base.dir
   if [ "x$PropValue" = "x" ]; then
-    echo "Please specify either jboss server name (-c) or -Djboss.server.base.dir"
+    print_err "Please specify either jboss server name (-c) or -Djboss.server.base.dir" >&2
     print_usage
     exit 1
   fi
@@ -926,6 +950,10 @@ fi
 
 if [ "x$StopTimeout" = "x" ]; then
   StopTimeout=60
+fi
+
+if [ "x$StartTimeout" = "x" ]; then
+  StartTimeout=0
 fi
 
 do_command
