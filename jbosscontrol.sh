@@ -639,10 +639,9 @@ setup_jboss_cmdline() {
   else
     SERVER_DATA_DIR="$PropValue"
     if [ "x$SERVER_DATA_DIR" = "x$ServerDir/data" ]; then
-      remove_property jboss.server.config.dir
+      remove_property jboss.server.data.dir
     fi
   fi
-      remove_property jboss.server.config.dir
 
   if [ ! -d "$SERVER_DATA_DIR" ]; then
     print_err "Directory '$SERVER_DATA_DIR' not found, creating" >&2
