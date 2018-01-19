@@ -547,18 +547,11 @@ start_server_script() {
              ;;
            esac
 	 ;;
-#JBoss AS 7.1.1
-         *JBAS015874:\ JBoss\ AS\ 7.1.1.Final\ \"Brontes\"\ started\ in*)
+#WildFly Full WildFly10.1.0.Final
+         *WFLYSRV0025:\ WildFly\ Full\ 10.1.0.Final\ \(WildFly\ Core\ 2.2.0.Final\)\ started\ in*)
            write_state RUNNING:Y:N
          ;;
-         *JBAS015950:\ JBoss\ AS\ 7.1.1.Final\ \"Brontes\"\ stopped\ in*)
-           write_state SHUTTING_DOWN:Y:N
-         ;;
-#WildFly Full 9.0.1.Final
-         *WFLYSRV0025:\ WildFly\ Full\ 9.0.1.Final\ \(WildFly\ Core\ 1.0.1.Final\)\ started\ in*)
-           write_state RUNNING:Y:N
-         ;;
-         *WFLYSRV0050:\ WildFly\ Full\ 9.0.1.Final\ \(WildFly\ Core\ 1.0.1.Final\)\ stopped\ in*)
+         *WFLYSRV0050:\ WildFly\ Full\ 10.1.0.Final\ \(WildFly\ Core\ 2.0.2.Final\)\ stopped\ in*)
            write_state SHUTTING_DOWN:Y:N
          ;;
        esac
@@ -572,7 +565,7 @@ start_server_script() {
 
 setup_jboss_cmdline() {
 
-  MEM_ARGS="-Xms128m -Xmx512m -XX:MaxPermSize=256m"
+  MEM_ARGS="-Xms64m -Xmx2048m -XX:MetaspaceSize=96M -XX:MaxMetaspaceSize=256m"
   if [ "x$USER_MEM_ARGS" != "x" ]; then
     MEM_ARGS="$USER_MEM_ARGS"
   fi
@@ -593,25 +586,6 @@ setup_jboss_cmdline() {
       $JAVA -version | grep -i HotSpot > $NullDevice 2>&1
       if [ "x$?" != "x0" ]; then
         JAVA_OPTS="-server $JAVA_OPTS"
-      fi
-    fi
-  fi
-
-  echo $JAVA_OPTS | grep "\-server" > $NullDevice 2>&1
-  if [ "x$?" = "x0" ]; then
-    echo $JAVA_OPTS | grep "\-XX:[\-\+]UseCompressedOops" > $NullDevice 2>&1
-    if [ "x$?" != "x0" ]; then
-      $JAVA -server -XX:+UseCompressedOops -version > $NullDevice 2>&1
-      if [ "x$?" = "x0" ]; then
-	JAVA_OPTS="$JAVA_OPTS -XX:+UseCompressedOops"
-      fi
-    fi
-
-    echo $JAVA_OPTS | grep "\-XX:[\-\+]TieredCompilation" > $NullDevice 2>&1
-    if [ "x$?" != "x0" ]; then
-      $JAVA -server -XX:+TieredCompilation -version > $NullDevice 2>&1
-      if [ "x$?" = "x0" ]; then
-	JAVA_OPTS="$JAVA_OPTS -XX:+TieredCompilation"
       fi
     fi
   fi
@@ -646,10 +620,9 @@ setup_jboss_cmdline() {
   else
     SERVER_DATA_DIR="$PropValue"
     if [ "x$SERVER_DATA_DIR" = "x$ServerDir/data" ]; then
-      remove_property jboss.server.config.dir
+      remove_property jboss.server.data.dir
     fi
   fi
-      remove_property jboss.server.config.dir
 
   if [ ! -d "$SERVER_DATA_DIR" ]; then
     print_err "Directory '$SERVER_DATA_DIR' not found, creating" >&2
@@ -714,11 +687,11 @@ setup_jboss_cmdline() {
   # Setup JBoss specific properties
   JAVA_OPTS="-D[Standalone] $JAVA_OPTS"
   JAVA_OPTS="$JAVA_OPTS $MEM_ARGS"
+  JAVA_OPTS="$JAVA_OPTS -Djboss.modules.system.pkgs=org.jboss.byteman"
   JAVA_OPTS="$JAVA_OPTS -Djboss.home.dir=$JBOSS_HOME"
   JAVA_OPTS="$JAVA_OPTS -Djboss.server.base.dir=$ServerDir"
   JAVA_OPTS="$JAVA_OPTS -jar $JBOSS_HOME/jboss-modules.jar"
   JAVA_OPTS="$JAVA_OPTS -mp $JBOSS_MODULEPATH"
-  JAVA_OPTS="$JAVA_OPTS -jaxpmodule javax.xml.jaxp-provider"
 
   CommandName=$JAVA
   CommandArgs="$JAVA_OPTS org.jboss.as.standalone $JBOSS_OPTS"
